@@ -1,9 +1,12 @@
-name: Android Build
+name: Android APK Build
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -22,8 +25,16 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
       - name: Verify APK exists
         run: test -s app/build/outputs/apk/debug/app-debug.apk
-      - name: Upload APK
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk DailyHelper.apk
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DailyHelper-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: DailyHelper-APK
+          path: DailyHelper.apk
+      - name: Publish APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes || true
+          gh release create latest DailyHelper.apk --title "하루도우미 최신 APK" --notes "자동 빌드된 최신 Android APK입니다." --latest
