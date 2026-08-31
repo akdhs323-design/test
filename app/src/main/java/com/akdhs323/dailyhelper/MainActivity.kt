@@ -24,15 +24,20 @@ class MainActivity : ComponentActivity() {
 }
 
 data class Todo(val text: String, val done: Boolean = false)
+data class Expense(val amount: Int, val memo: String)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DailyHelperApp(prefs: android.content.SharedPreferences) {
     val defaults = listOf(Todo("오늘 할 일 정리하기"), Todo("물 한 잔 마시기"))
     var todos by remember { mutableStateOf(loadTodos(prefs).ifEmpty { defaults }) }
-    var spending by remember { mutableIntStateOf(prefs.getInt("spending", 0)) }
+    var expenses by remember { mutableStateOf(loadExpenses(prefs)) }
+    var memo by remember { mutableStateOf(prefs.getString("memo", "") ?: "") }
     var input by remember { mutableStateOf("") }
     var expenseInput by remember { mutableStateOf("") }
+    var expenseMemo by remember { mutableStateOf("") }
     var showExpense by remember { mutableStateOf(false) }
+    var showMemo by remember { mutableStateOf(false) }
     var timerSeconds by remember { mutableIntStateOf(prefs.getInt("timer", 25 * 60)) }
     var timerRunning by remember { mutableStateOf(false) }
 
@@ -47,7 +52,8 @@ fun DailyHelperApp(prefs: android.content.SharedPreferences) {
 
     fun save() {
         saveTodos(prefs, todos)
-        prefs.edit().putInt("spending", spending).putInt("timer", timerSeconds).apply()
+        saveExpenses(prefs, expenses)
+        prefs.edit().putString("memo", memo).putInt("timer", timerSeconds).apply()
     }
 
     MaterialTheme(colorScheme = lightColorScheme()) {
@@ -67,7 +73,7 @@ fun DailyHelperApp(prefs: android.content.SharedPreferences) {
                             Spacer(Modifier.height(10.dp))
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("완료 ${todos.count { it.done }} / ${todos.size}")
-                                Text("지출 ${String.format(Locale.KOREA, "%,d", spending)}원")
+                                Text("지출 ${String.format(Locale.KOREA, "%,d", expenses.sumOf { it.amount })}원")
                             }
                         }
                     }
@@ -81,6 +87,11 @@ fun DailyHelperApp(prefs: android.content.SharedPreferences) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = { timerRunning = !timerRunning }) { Text(if (timerRunning) "일시정지" else "시작") }
                                 OutlinedButton(onClick = { timerRunning = false; timerSeconds = 25 * 60; save() }) { Text("25분 리셋") }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { timerRunning = false; timerSeconds = 10 * 60; save() }) { Text("10분") }
+                                OutlinedButton(onClick = { timerRunning = false; timerSeconds = 50 * 60; save() }) { Text("50분") }
                             }
                         }
                     }
@@ -104,18 +115,54 @@ fun DailyHelperApp(prefs: android.content.SharedPreferences) {
                     }
                 }
                 item {
-                    Text("💰 오늘의 지출", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Button(onClick = { showExpense = true }) { Text("지출 추가") }
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("💰 지출 관리", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("${String.format(Locale.KOREA, "%,d", expenses.sumOf { it.amount })}원")
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Button(onClick = { showExpense = true }) { Text("상세 지출 추가") }
+                            expenses.takeLast(5).forEach { item ->
+                                Text("• ${String.format(Locale.KOREA, "%,d", item.amount)}원  ${item.memo}", modifier = Modifier.padding(top = 6.dp))
+                            }
+                        }
+                    }
+                }
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp)) {
+                            Text("📝 내 메모", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(if (memo.isBlank()) "아직 메모가 없습니다." else memo, maxLines = 3, modifier = Modifier.padding(vertical = 8.dp))
+                            OutlinedButton(onClick = { showMemo = true }) { Text("메모 편집") }
+                        }
+                    }
                 }
             }
         }
         if (showExpense) {
             AlertDialog(
                 onDismissRequest = { showExpense = false },
-                title = { Text("지출 추가") },
-                text = { OutlinedTextField(expenseInput, { expenseInput = it.filter(Char::isDigit) }, placeholder = { Text("금액 (원)") }, singleLine = true) },
-                confirmButton = { TextButton(onClick = { spending += expenseInput.toIntOrNull() ?: 0; expenseInput = ""; showExpense = false; save() }) { Text("추가") } },
+                title = { Text("상세 지출 추가") },
+                text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(expenseInput, { expenseInput = it.filter(Char::isDigit) }, placeholder = { Text("금액 (원)") }, singleLine = true)
+                    OutlinedTextField(expenseMemo, { expenseMemo = it.take(40) }, placeholder = { Text("내용 (예: 점심)" ) }, singleLine = true)
+                }},
+                confirmButton = { TextButton(onClick = {
+                    val amount = expenseInput.toIntOrNull() ?: 0
+                    if (amount > 0) expenses = expenses + Expense(amount, expenseMemo.ifBlank { "기타" })
+                    expenseInput = ""; expenseMemo = ""; showExpense = false; save()
+                }) { Text("추가") } },
                 dismissButton = { TextButton(onClick = { showExpense = false }) { Text("취소") } }
+            )
+        }
+        if (showMemo) {
+            AlertDialog(
+                onDismissRequest = { showMemo = false },
+                title = { Text("메모 편집") },
+                text = { OutlinedTextField(memo, { memo = it.take(500) }, minLines = 4, placeholder = { Text("기억할 내용을 적어보세요") }) },
+                confirmButton = { TextButton(onClick = { showMemo = false; save() }) { Text("저장") } },
+                dismissButton = { TextButton(onClick = { showMemo = false }) { Text("취소") } }
             )
         }
     }
@@ -135,4 +182,19 @@ private fun loadTodos(prefs: android.content.SharedPreferences): List<Todo> {
 private fun saveTodos(prefs: android.content.SharedPreferences, todos: List<Todo>) {
     val raw = todos.joinToString("\\n") { "${if (it.done) 1 else 0}|${it.text.replace("|", "︱").replace("\n", " ")}" }
     prefs.edit().putString("todos", raw).apply()
+}
+
+private fun loadExpenses(prefs: android.content.SharedPreferences): List<Expense> {
+    val raw = prefs.getString("expenses", "") ?: ""
+    if (raw.isBlank()) return emptyList()
+    return raw.split("\\n").filter { it.isNotBlank() }.mapNotNull {
+        val p = it.split("|", limit = 2)
+        val amount = p.getOrNull(0)?.toIntOrNull() ?: return@mapNotNull null
+        Expense(amount, p.getOrElse(1) { "기타" })
+    }
+}
+
+private fun saveExpenses(prefs: android.content.SharedPreferences, expenses: List<Expense>) {
+    val raw = expenses.joinToString("\\n") { "${it.amount}|${it.memo.replace("|", "︱").replace("\n", " ")}" }
+    prefs.edit().putString("expenses", raw).apply()
 }
