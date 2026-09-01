@@ -1,8 +1,8 @@
-name: Deploy web preview
+name: Deploy website branch
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "website" ]
   workflow_dispatch:
 
 permissions:
@@ -21,16 +21,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout website branch
         uses: actions/checkout@v4
-      - name: Prepare site
-        run: |
-          mkdir -p _site
-          cp -r web/. _site/
-      - name: Upload Pages artifact
+        with:
+          ref: website
+      - name: Upload website
         uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: .
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
